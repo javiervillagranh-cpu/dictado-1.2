@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dictado</title>
+<style>
+:root{
+  --bg:#f6f7f5; --surface:#ffffff; --text:#1d2420; --muted:#66716b; --line:#d9dfdb;
+  --accent:#1f6f5c; --accent-text:#ffffff; --rec:#b3261e;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#141a17; --surface:#1c2420; --text:#e6ece8; --muted:#97a39c; --line:#2d3833;
+    --accent:#4fb79c; --accent-text:#0e1613; --rec:#ff6b60;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141a17; --surface:#1c2420; --text:#e6ece8; --muted:#97a39c; --line:#2d3833;
+  --accent:#4fb79c; --accent-text:#0e1613; --rec:#ff6b60;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.5}
+main{max-width:720px;margin:0 auto;padding:24px 16px 40px;display:flex;flex-direction:column;gap:16px}
+h1{font-size:1.4rem;margin:0}
+p.hint{margin:0;color:var(--muted);font-size:.95rem}
+textarea{width:100%;min-height:50vh;resize:vertical;padding:16px;font:inherit;font-size:1.05rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:10px}
+textarea:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+button,select,input{font:inherit;padding:12px 18px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+input{cursor:text; padding:8px 12px;}
+button.main{background:var(--accent);color:var(--accent-text);border-color:var(--accent);font-weight:600;min-width:150px}
+button.main.on{background:var(--rec);border-color:var(--rec);color:#fff}
+#status{color:var(--muted);font-size:.9rem;min-height:1.4em}
+details{background:var(--surface); padding:16px; border-radius:10px; border:1px solid var(--line);}
+summary{cursor:pointer; font-weight:600; color:var(--accent);}
+.dic-row{display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;}
+</style>
+</head>
+<body>
+<main>
+  <h1>Dictado</h1>
+  <p class="hint">Comandos: «tac tap», «tac de tórax», «deshacer».</p>
+  
+  <textarea id="texto" placeholder="Aquí aparecerá lo que dictes…" aria-label="Texto dictado"></textarea>
+  
+  <div class="row">
+    <button id="btn" class="main" type="button">Dictar</button>
+    <button id="copiar" type="button">Copiar</button>
+    <button id="borrar" type="button">Borrar</button>
+    <select id="idioma" aria-label="Idioma">
+      <option value="es-CL" selected>Español (Chile)</option>
+      <option value="es-ES">Español (España)</option>
+      <option value="es-MX">Español (México)</option>
+      <option value="en-US">English (US)</option>
+    </select>
+    <label style="display:flex;gap:8px;align-items:center;color:var(--muted);font-size:.95rem"><input type="checkbox" id="cmd" checked> Comandos y Plantillas</label>
+  </div>
+  
+  <div id="status" role="status"></div>
+
+  <details>
+    <summary>Añadir al diccionario personalizado</summary>
+    <p class="hint" style="margin-top:8px">Guarda términos que el sistema suela interpretar mal para corregirlos automáticamente en el futuro.</p>
+    <div class="dic-row">
+      <input type="text" id="dicIn" placeholder="Si escuchas... (ej. adeno)">
+      <input type="text" id="dicOut" placeholder="Escribe... (ej. adenomiomatosis)">
+      <button id="btnDic" type="button">Guardar</button>
+    </div>
+    <div id="dicMsg" style="color:var(--accent); font-size:0.9rem; margin-top:8px;"></div>
+  </details>
+</main>
+<script>
+(function(){
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var btn = document.getElementById('btn'), box = document.getElementById('texto'),
+      st = document.getElementById('status'), lang = document.getElementById('idioma');
+  var rec = null, activo = false, pre = '', post = '', interimStr = '', ultimoPre = '';
+  
+  function render(it){
+    interimStr = it ? sepa(pre, it) + it : '';
+    box.value = pre + interimStr + post;
+    var c = pre.length + interimStr.length;
+    box.setSelectionRange(c, c);
+  }
+  
+  function sync(){
+    var v = box.value, s = box.selectionStart, e = box.selectionEnd;
+    if(interimStr){
+      var a = pre.length, b = a + interimStr.length;
+      var adj = function(p){ return p <= a ? p : (p >= b ? p - (b - a) : a); };
+      v = v.slice(0, a) + v.slice(b); s = adj(s); e = adj(e); interimStr = '';
+      box.value = v; box.setSelectionRange(s, e);
+    }
+    pre = v.slice(0, s); post = v.slice(e);
+  }
+  
+  var cmd = document.getElementById('cmd');
+  function comandos(t){
+    return t
+      .replace(/\s*\bnuevo p[aá]rrafo\b[\s,.]*/gi, '\n\n')
+      .replace(/\s*\bnueva l[ií]nea\b[\s,.]*/gi, '\n')
+      .replace(/\s*\bdos puntos\b\s*/gi, ': ')
+      .replace(/\s*\bpunto\b\s*/gi, '. ')
+      .replace(/\s*\bcoma\b\s*/gi, ', ');
+  }
+
+  var diccionarioMedico = {
+    "\\bte ce\\b": "TC",
+    "\\btc\\b": "TC",
+    "\\berre eme\\b": "RM",
+    "\\brm\\b": "RM",
+    "\\beco\\b": "ECO",
+    "\\becografía\\b": "Ecografía",
+    "\\bpe de a\\b": "PDA",
+    "\\bpda\\b": "PDA",
+    "\\berre cero\\b": "R0",
+    "\\berre uno\\b": "R1"
+  };
+
+  function cargarDiccionarioExtra() {
+    try { return JSON.parse(localStorage.getItem('dicExtra')) || {}; } catch(e) { return {}; }
+  }
+
+  function corregirTerminos(t) {
+    var modificado = t;
+    var dicExtra = cargarDiccionarioExtra();
+    
+    for (var regex in dicExtra) {
+      modificado = modificado.replace(new RegExp("\\b" + regex + "\\b", 'gi'), dicExtra[regex]);
+    }
+    for (var regex in diccionarioMedico) {
+      modificado = modificado.replace(new RegExp(regex, 'gi'), diccionarioMedico[regex]);
+    }
+    return modificado;
+  }
+
+  document.getElementById('btnDic').addEventListener('click', function(){
+    var inVal = document.getElementById('dicIn').value.trim();
+    var outVal = document.getElementById('dicOut').value.trim();
+    if(inVal && outVal){
+      var dicExtra = cargarDiccionarioExtra();
+      dicExtra[inVal] = outVal;
+      localStorage.setItem('dicExtra', JSON.stringify(dicExtra));
+      document.getElementById('dicIn').value = '';
+      document.getElementById('dicOut').value = '';
+      var msg = document.getElementById('dicMsg');
+      msg.textContent = 'Añadido: Cuando digas "' + inVal + '" escribirá "' + outVal + '".';
+      setTimeout(function(){ msg.textContent = ''; }, 4000);
+    }
+  });
+
+  var plantillasMedicas = {
+    "\\b(?:insertar )?(?:plantilla )?tac(?: de)? (?:tap|tac|abdomen(?: y)? pelvis)\\b": "\n\nTC DE TÓRAX, ABDOMEN Y PELVIS CON CONTRASTE\nAntecedentes:\nHallazgos:\nÁrbol traqueobronquial principal permeable.\nVolúmenes pulmonares conservados. No se observa focos de consolidación ni nódulos sospechosos. No se identifica derrame pleural ni neumotórax.\nCorazón de tamaño normal. No se observa derrame pericárdico. Grandes vasos mediastínicos de trayecto y calibre normal. No se identifican adenopatías mediastínicas ni hiliares por criterios de tamaño.\nHígado de tamaño, forma y densidad normal. No se observan lesiones focales.\nEje venoso portoesplenomesentérico y venas suprahepáticas permeables.\nVesícula biliar distendida, de pared fina, con contenido hipodenso.\nVía biliar intra y extrahepática de calibre adecuado.\nPáncreas, bazo y glándulas suprarrenales sin alteraciones.\nRiñones de tamaño, forma y grosor parenquimatoso normal. No se observa hidronefrosis ni colecciones perirrenales.\nUréteres de trayecto y calibre normal.\nVejiga distendida, de pared fina, con contenido hipodenso, homogéneo.\n\nAorta y vena cava inferior de calibre normal.\nEstómago colapsado, de pared no evaluable. Asas de intestino delgado y colon de disposición y calibre normal. Apéndice vermiforme sin alteraciones.\nNo se identifican adenopatías pélvicas, mesentéricas ni retroperitoneales por criterios de tamaño.\nEsqueleto óseo visible sin lesiones de carácter agresivo.\nImpresión:\nExamen sin hallazgos de significado patológico.\n\nDr. Javier Villagrán - Residente de Imagenología\n\n",
+    "\\b(?:insertar )?(?:plantilla )?tac(?: de)? t[oó]rax\\b": "\n\nTOMOGRAFÍA COMPUTADA DE TÓRAX\nAntecedentes:\nHallazgos\nTráquea y bronquios principales de trayectos y calibres normales.\nVolúmenes pulmonares conservados. El parénquima pulmonar presenta densidad y arquitectura conservada. No se observan imágenes nodulares.\nNo se observa derrame pleural ni neumotórax.\nCorazón de forma y tamaño en límites normales. No se observa derrame pericárdico. Vasos del mediastino de trayectos y calibres conservados.\nNo se observan adenopatías mediastínicas ni axilares.\nEsqueleto óseo visible sin lesiones de aspecto agresivo.\n\nImpresión:\nExamen sin hallazgos patológicos.\nAtte.\nDr. Javier Villagrán - Residente Imagenología\n\n"
+  };
+
+  function aplicarPlantillas(t) {
+    var modificado = t;
+    for (var regex in plantillasMedicas) {
+      modificado = modificado.replace(new RegExp(regex, 'gi'), plantillasMedicas[regex]);
+    }
+    return modificado;
+  }
+  
+  function limpiar(t){ return t.replace(/^[ \t]+|[ \t]+$/g, ''); }
+  function sepa(b, f){ return (b && !/\s$/.test(b) && !/^[.,\s]/.test(f)) ? ' ' : ''; }
+
+  function capitalizar(texto, previo) {
+    if (!texto) return texto;
+    var t = texto;
+    if (!previo || /[\.\?\!\n]\s*$/.test(previo)) {
+      t = t.replace(/^([\s\n]*)(.)/, function(match, espacios, caracter) {
+        return espacios + caracter.toUpperCase();
+      });
+    }
+    t = t.replace(/([\.\?\!\n]+\s*)(.)/g, function(match, separador, caracter) {
+      return separador + caracter.toUpperCase();
+    });
+    return t;
+  }
+
+  if(!SR){
+    st.textContent = 'Este navegador no admite dictado por voz. Prueba con Chrome, Edge o Safari.';
+    btn.disabled = true; return;
+  }
+
+  function crear(){
+    rec = new SR();
+    rec.lang = lang.value;
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.onresult = function(e){
+      var final = '', interim = '';
+      for(var i=e.resultIndex;i<e.results.length;i++){
+        var t = e.results[i][0].transcript;
+        if(e.results[i].isFinal) final += t; else interim += t;
+      }
+      var on = cmd.checked;
+      var f = final;
+      
+      // Comando DESHACER
+      if(on && /\bdeshacer\b/i.test(f.trim())){
+        pre = ultimoPre;
+        render('');
+        return;
+      }
+
+      if(on) f = comandos(corregirTerminos(aplicarPlantillas(final)));
+      f = limpiar(f);
+      
+      if(f){ 
+        ultimoPre = pre; // Guardamos el estado antes de añadir texto nuevo
+        if(on) f = capitalizar(f, pre);
+        pre += sepa(pre, f) + f; 
+        if(post && !/^[\s.,]/.test(post) && !/\s$/.test(f)) pre += ' '; 
+      }
+      
+      var it = interim;
+      if(on && !/\bdeshacer\b/i.test(it.trim())) {
+        it = comandos(corregirTerminos(aplicarPlantillas(interim)));
+        it = limpiar(it);
+        if(on && it) it = capitalizar(it, pre);
+      } else if (/\bdeshacer\b/i.test(it.trim())) {
+        it = '';
+      }
+      
+      render(it);
+    };
+    rec.onerror = function(e){
+      if(e.error === 'not-allowed' || e.error === 'service-not-allowed'){
+        st.textContent = 'No hay permiso para usar el micrófono. Actívalo en el navegador e inténtalo de nuevo.';
+        parar();
+      } else if(e.error !== 'no-speech' && e.error !== 'aborted'){
+        st.textContent = 'Error de dictado: ' + e.error;
+      }
+    };
+    rec.onend = function(){ if(activo){ try{ rec.start(); }catch(_){} } };
+  }
+
+  function iniciar(){
+    interimStr = '';
+    sync();
+    ultimoPre = pre;
+    crear();
+    try{ rec.start(); }catch(_){}
+    activo = true; btn.textContent = 'Detener'; btn.classList.add('on');
+    st.textContent = 'Escuchando…';
+  }
+  function parar(){
+    activo = false;
+    if(rec){ try{ rec.stop(); }catch(_){} }
+    btn.textContent = 'Dictar'; btn.classList.remove('on');
+    if(st.textContent === 'Escuchando…') st.textContent = '';
+  }
+
+  btn.addEventListener('click', function(){ activo ? parar() : iniciar(); });
+  box.addEventListener('input', function(){ interimStr = ''; pre = box.value.slice(0, box.selectionStart); post = box.value.slice(box.selectionEnd); ultimoPre = pre; });
+  ['click', 'keyup', 'mouseup'].forEach(function(ev){ box.addEventListener(ev, sync); });
+  lang.addEventListener('change', function(){ if(activo){ parar(); iniciar(); } });
+  document.getElementById('borrar').addEventListener('click', function(){ ultimoPre = box.value; box.value=''; pre=''; post=''; interimStr=''; });
+  
+  document.getElementById('copiar').addEventListener('click', function(){
+    var textoLimpio = box.value.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
+    if(navigator.clipboard && window.isSecureContext){ 
+      navigator.clipboard.writeText(textoLimpio).then(function(){ 
+        st.textContent='Texto copiado sin espacios extra.'; 
+      },function(){ 
+        st.textContent = 'Error al copiar.'; 
+      }); 
+    } else {
+      var tempBox = document.createElement('textarea');
+      tempBox.value = textoLimpio;
+      tempBox.style.position = 'fixed';
+      tempBox.style.opacity = '0';
+      document.body.appendChild(tempBox);
+      tempBox.select();
+      var ok = false;
+      try{ ok = document.execCommand('copy'); }catch(_){}
+      document.body.removeChild(tempBox);
+      st.textContent = ok ? 'Texto copiado sin espacios extra.' : 'No se pudo copiar.';
+    }
+  });
+})();
+</script>
+</body>
+</html>
