@@ -43,7 +43,7 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
 <body>
 <main>
   <h1>Dictado</h1>
-  <p class="hint">Comandos: «tac tap», «tac de tórax», «deshacer». <b>Atajo: F9 para encender/apagar.</b></p>
+  <p class="hint">Comandos: «tac tap», «tac de tórax», «deshacer».</p>
   
   <textarea id="texto" placeholder="Aquí aparecerá lo que dictes…" aria-label="Texto dictado"></textarea>
   
@@ -241,7 +241,7 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
   }
 
   function iniciar(){
-    box.focus(); // NUEVO: Fuerza el cursor en la caja de texto
+    box.focus();
     interimStr = '';
     sync();
     ultimoPre = pre;
@@ -256,14 +256,6 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
     btn.textContent = 'Dictar'; btn.classList.remove('on');
     if(st.textContent === 'Escuchando…') st.textContent = '';
   }
-
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'F9') {
-      e.preventDefault();
-      box.focus(); // NUEVO: Auto-selecciona al usar el atajo del micrófono
-      activo ? parar() : iniciar();
-    }
-  });
 
   btn.addEventListener('click', function(){ activo ? parar() : iniciar(); });
   box.addEventListener('input', function(){ interimStr = ''; pre = box.value.slice(0, box.selectionStart); post = box.value.slice(box.selectionEnd); ultimoPre = pre; });
