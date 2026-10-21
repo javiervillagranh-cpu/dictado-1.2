@@ -202,7 +202,6 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
       var on = cmd.checked;
       var f = final;
       
-      // Comando DESHACER
       if(on && /\bdeshacer\b/i.test(f.trim())){
         pre = ultimoPre;
         render('');
@@ -242,6 +241,7 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
   }
 
   function iniciar(){
+    box.focus(); // NUEVO: Fuerza el cursor en la caja de texto
     interimStr = '';
     sync();
     ultimoPre = pre;
@@ -257,10 +257,10 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
     if(st.textContent === 'Escuchando…') st.textContent = '';
   }
 
-  // NUEVO: Atajo de teclado (F9) para encender o apagar sin usar el ratón
   document.addEventListener('keydown', function(e) {
     if (e.key === 'F9') {
       e.preventDefault();
+      box.focus(); // NUEVO: Auto-selecciona al usar el atajo del micrófono
       activo ? parar() : iniciar();
     }
   });
