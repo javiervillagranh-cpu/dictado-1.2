@@ -9,7 +9,7 @@
   --bg:#f6f7f5; --surface:#ffffff; --text:#1d2420; --muted:#66716b; --line:#d9dfdb;
   --accent:#1f6f5c; --accent-text:#ffffff; --rec:#b3261e;
   box-sizing:border-box;
-  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-bottom,0px);
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
@@ -263,17 +263,31 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
   lang.addEventListener('change', function(){ if(activo){ parar(); iniciar(); } });
   document.getElementById('borrar').addEventListener('click', function(){ ultimoPre = box.value; box.value=''; pre=''; post=''; interimStr=''; });
   
+  // NÚCLEO MODIFICADO: Forzar portapapeles en Formato Rico (HTML) y Texto Limpio simultáneamente
   document.getElementById('copiar').addEventListener('click', function(){
-    var textoLimpio = box.value.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
-    if(navigator.clipboard && window.isSecureContext){ 
-      navigator.clipboard.writeText(textoLimpio).then(function(){ 
-        st.textContent='Texto copiado sin espacios extra.'; 
-      },function(){ 
-        st.textContent = 'Error al copiar.'; 
-      }); 
+    var textoPlano = box.value;
+    var textoHTML = textoPlano.replace(/\n/g, '<br>');
+    
+    if(navigator.clipboard && window.ClipboardItem && window.isSecureContext){
+      var htmlBlob = new Blob([textoHTML], {type: 'text/html'});
+      var textBlob = new Blob([textoPlano], {type: 'text/plain'});
+      var clipItem = new ClipboardItem({
+        'text/html': htmlBlob,
+        'text/plain': textBlob
+      });
+      navigator.clipboard.write([clipItem]).then(function(){
+        st.textContent = 'Copiado con formato compacto (salto simple).';
+      }).catch(function(){
+        fallbackCopy(textoPlano);
+      });
     } else {
+      fallbackCopy(textoPlano);
+    }
+    
+    function fallbackCopy(text) {
+      var tLimpio = text.replace(/\r\n/g, '\n');
       var tempBox = document.createElement('textarea');
-      tempBox.value = textoLimpio;
+      tempBox.value = tLimpio;
       tempBox.style.position = 'fixed';
       tempBox.style.opacity = '0';
       document.body.appendChild(tempBox);
@@ -281,7 +295,7 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
       var ok = false;
       try{ ok = document.execCommand('copy'); }catch(_){}
       document.body.removeChild(tempBox);
-      st.textContent = ok ? 'Texto copiado sin espacios extra.' : 'No se pudo copiar.';
+      st.textContent = ok ? 'Copiado en modo texto plano.' : 'Error al copiar.';
     }
   });
 })();
